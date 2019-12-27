@@ -47,9 +47,14 @@ export class Stats extends Sequence {
 
   private lastTime: number;
 
-  constructor() {
+  private samplingIntervalMs: number;
+
+  private samplingAcc: number;
+
+  constructor(samplingIntervalMs?: number) {
     super();
     this.avgs = new Sequence();
+    this.samplingIntervalMs = samplingIntervalMs || 0;
     this.clear();
     Object.seal(this);
   }
@@ -59,12 +64,19 @@ export class Stats extends Sequence {
     this.avgs.clear();
     this.avg = 0;
     this.lastTime = 0;
+    this.samplingAcc = 0;
   }
 
   add(value: number) {
     const now = Date.now();
+    value += this.samplingAcc;
+
     if (this.lastTime) {
       const diff = now - this.lastTime;
+      if (diff < this.samplingIntervalMs) {
+        this.samplingAcc = value;
+        return false;
+      }
       value = (value / diff * 1000) | 0;
     }
     this.lastTime = now;
@@ -81,5 +93,7 @@ export class Stats extends Sequence {
       this.avg = this.avg * 0.85 + cavg * 0.15;
     }
     this.avgs.add(this.avg);
+
+    return true;
   }
 }

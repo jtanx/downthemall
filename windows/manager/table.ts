@@ -33,7 +33,7 @@ import { DownloadState, StateTexts, StateClasses, StateIcons } from "./state";
 import { Tooltip } from "./tooltip";
 import "../../lib/util";
 import { CellTypes } from "../../uikit/lib/constants";
-import { downloads, CHROME } from "../../lib/browser";
+import { CHROME } from "../../lib/browser";
 import { $ } from "../winutil";
 // eslint-disable-next-line no-unused-vars
 import { TableConfig } from "../../uikit/lib/config";
@@ -43,8 +43,6 @@ import * as imex from "../../lib/imex";
 import { BaseItem } from "../../lib/item";
 
 const TREE_CONFIG_VERSION = 2;
-const RUNNING_TIMEOUT = 1000;
-const SIZES_TIMEOUT = 150;
 
 const COL_URL = 0;
 const COL_DOMAIN = 1;
@@ -300,11 +298,6 @@ export class DownloadItem extends EventEmitter {
     this.emit("update");
   }
 
-  async queryState() {
-    const [state] = await downloads.search({id: this.manId});
-    return state;
-  }
-
   adoptSize(state: any) {
     const {
       bytesReceived,
@@ -315,50 +308,31 @@ export class DownloadItem extends EventEmitter {
     this.totalSize = Math.max(0, fileSize >= 0 ? fileSize : totalBytes);
   }
 
-  async updateSizes() {
-    if (!this.manId) {
-      return;
-    }
-    const state = await this.queryState();
-    if (!this.manId) {
-      return;
-    }
-    this.adoptSize(state);
-    if (this.isFiltered) {
-      this.owner.invalidateCell(this.filteredPosition, COL_PROGRESS);
-      this.owner.invalidateCell(this.filteredPosition, COL_PER);
-      this.owner.invalidateCell(this.filteredPosition, COL_SIZE);
-    }
-  }
-
-  async updateStats() {
+  updateStats(state: any) {
     if (this.state !== DownloadState.RUNNING) {
       return -1;
     }
+
     let v = 0;
-    try {
-      if (this.manId) {
-        const state = await this.queryState();
-        if (!this.manId) {
-          return -1;
-        }
-        this.adoptSize(state);
-        if (!this.lastWritten) {
-          this.lastWritten = Math.max(0, this.written);
-          return -1;
-        }
-        v = Math.max(0, this.written - this.lastWritten);
-        this.lastWritten = Math.max(0, this.written);
-      }
+    this.adoptSize(state);
+    if (!this.lastWritten) {
+      this.lastWritten = Math.max(0, this.written);
+      return -1;
     }
-    catch (ex) {
-      console.error("failed to stat", ex);
-    }
+    v = Math.max(0, this.written - this.lastWritten);
+    this.lastWritten = Math.max(0, this.written);
+
     this.stats.add(v);
     if (this.isFiltered) {
       this.owner.invalidateRow(this.filteredPosition);
     }
     this.emit("stats");
+
+    if (this.isFiltered) {
+      this.owner.invalidateCell(this.filteredPosition, COL_PROGRESS);
+      this.owner.invalidateCell(this.filteredPosition, COL_PER);
+      this.owner.invalidateCell(this.filteredPosition, COL_SIZE);
+    }
     return this.stats.avg;
   }
 
@@ -397,10 +371,6 @@ export class DownloadTable extends VirtualTable {
 
   public readonly showUrls: ShowUrlsWatcher;
 
-  private runningTimer: number | null;
-
-  private sizesTimer: number | null;
-
   private readonly globalStats: Stats;
 
   private readonly downloads: FilteredCollection;
@@ -438,8 +408,7 @@ export class DownloadTable extends VirtualTable {
 
     this.finished = 0;
     this.running = new Set();
-    this.runningTimer = null;
-    this.globalStats = new Stats();
+    this.globalStats = new Stats(1000);
     this.showUrls = new ShowUrlsWatcher(this);
 
     this.updateCounts = debounce(this.updateCounts.bind(this), 100);
@@ -695,24 +664,6 @@ export class DownloadTable extends VirtualTable {
     }
   }
 
-  async updateSizes() {
-    for (const r of this.running) {
-      await r.updateSizes();
-    }
-  }
-
-  async updateRunning() {
-    let sum = 0;
-    for (const r of this.running) {
-      const v = await r.updateStats();
-      if (v >= 0) {
-        sum += v;
-      }
-    }
-    this.globalStats.add(sum);
-    $("#statusSpeed").textContent = formatSpeed(this.globalStats.avg);
-  }
-
   dismissTooltip() {
     if (!this.tooltip) {
       return;
@@ -843,7 +794,7 @@ export class DownloadTable extends VirtualTable {
     PORT.post("cancel", {sids});
   }
 
-  async openFile() {
+  openFile() {
     this.dismissTooltip();
     const {focusRow} = this;
     if (focusRow < 0) {
@@ -854,23 +805,15 @@ export class DownloadTable extends VirtualTable {
       return;
     }
     item.opening = true;
-    try {
+    this.invalidateRow(focusRow);
+    PORT.post("open", {sid: item.sessionId});
+    setTimeout(() => {
+      item.opening = false;
       this.invalidateRow(focusRow);
-      await downloads.open(item.manId);
-    }
-    catch (ex) {
-      console.error(ex, ex.toString(), ex);
-      PORT.post("missing", {sid: item.sessionId});
-    }
-    finally {
-      setTimeout(() => {
-        item.opening = false;
-        this.invalidateRow(focusRow);
-      }, 500);
-    }
+    }, 500);
   }
 
-  async openDirectory() {
+  openDirectory() {
     if (this.focusRow < 0) {
       return;
     }
@@ -878,13 +821,7 @@ export class DownloadTable extends VirtualTable {
     if (!item || !item.manId) {
       return;
     }
-    try {
-      await downloads.show(item.manId);
-    }
-    catch (ex) {
-      console.error(ex, ex.toString(), ex);
-      PORT.post("missing", {sid: item.sessionId});
-    }
+    PORT.post("show", {sid: item.sessionId});
   }
 
   async deleteFiles() {
@@ -901,16 +838,7 @@ export class DownloadTable extends VirtualTable {
     const sids = items.map(i => i.sessionId);
     const paths = items.map(i => i.destFull);
     await new DeleteFilesDialog(paths).show();
-    await Promise.all(items.map(async item => {
-      try {
-        if (item.manId && item.state === DownloadState.DONE) {
-          await downloads.removeFile(item.manId);
-        }
-      }
-      catch {
-        // ignored
-      }
-    }));
+    PORT.post("removeFile", {sids});
     this.removeDownloadsInternal(sids);
   }
 
@@ -1108,6 +1036,25 @@ export class DownloadTable extends VirtualTable {
     }
   }
 
+  updateStats(items: any[]) {
+    console.log('update stats', items);
+
+    let sum = 0;
+    for (const i of items) {
+      const item = this.sids.get(i.sessionid);
+      if (item) {
+        const v = item.updateStats(i);
+        if (v >= 0) {
+          sum += v;
+        }
+      }
+    }
+
+    if (this.globalStats.add(sum)) {
+      $("#statusSpeed").textContent = formatSpeed(this.globalStats.avg);
+    }
+  }
+
   updatedDownload(item: DownloadItem) {
     this.downloads.recalculateItem(item);
     if (item.isFiltered) {
@@ -1120,11 +1067,7 @@ export class DownloadTable extends VirtualTable {
     switch (oldState) {
     case DownloadState.RUNNING:
       this.running.delete(item);
-      if (!this.running.size && this.runningTimer && this.sizesTimer) {
-        clearInterval(this.runningTimer);
-        this.runningTimer = null;
-        clearInterval(this.sizesTimer);
-        this.sizesTimer = null;
+      if (!this.running.size) {
         $("#statusSpeedContainer").classList.add("hidden");
       }
       break;
@@ -1135,16 +1078,10 @@ export class DownloadTable extends VirtualTable {
     }
     switch (newState) {
     case DownloadState.RUNNING:
-      this.running.add(item);
-      if (!this.runningTimer) {
-        this.runningTimer = window.setInterval(
-          this.updateRunning.bind(this), RUNNING_TIMEOUT);
-        this.sizesTimer = window.setInterval(
-          this.updateSizes.bind(this), SIZES_TIMEOUT);
-        this.updateRunning();
-        this.updateSizes();
+      if (!this.running.size) {
         $("#statusSpeedContainer").classList.remove("hidden");
       }
+      this.running.add(item);
       if (item.manId && item.ext) {
         IconCache.set(item.ext, item.manId).catch(console.error);
       }

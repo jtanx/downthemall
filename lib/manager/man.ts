@@ -1,6 +1,7 @@
 "use strict";
 // License: MIT
 
+import { Downloads } from "../browser";
 import { EventEmitter } from "../events";
 import { Notification } from "../notifications";
 import { DB } from "../db";
@@ -16,7 +17,8 @@ import { Download } from "./download";
 import { ManagerPort } from "./port";
 import { Scheduler } from "./scheduler";
 import { Limits } from "./limits";
-import { downloads, runtime, webRequest, CHROME, OPERA } from "../browser";
+import { runtime, webRequest, CHROME, OPERA } from "../browser";
+import { Fxdm } from "./fxdm";
 
 const US = runtime.getURL("");
 
@@ -26,10 +28,6 @@ const DIRTY_TIMEOUT = 100;
 const MISSING_TIMEOUT = 12 * 1000;
 const RELOAD_TIMEOUT = 10 * 1000;
 
-const setShelfEnabled = downloads.setShelfEnabled || function() {
-  // ignored
-};
-
 const FINISH_NOTIFICATION = new PrefWatcher("finish-notification", true);
 const SOUNDS = new PrefWatcher("sounds", false);
 
@@ -37,6 +35,8 @@ export class Manager extends EventEmitter {
   private items: Download[];
 
   public active: boolean;
+
+  public readonly downloads: Downloads;
 
   private notifiedFinished: boolean;
 
@@ -67,6 +67,7 @@ export class Manager extends EventEmitter {
     super();
     this.active = true;
     this.shouldReload = false;
+    this.downloads = new Fxdm();
     this.notifiedFinished = true;
     this.items = [];
     this.saveQueue = new CoalescedUpdate(
@@ -83,10 +84,10 @@ export class Manager extends EventEmitter {
 
     this.startNext = PromiseSerializer.wrapNew(1, this, this.startNext);
 
-    downloads.onChanged.addListener(this.onChanged.bind(this));
-    downloads.onErased.addListener(this.onErased.bind(this));
-    if (CHROME && downloads.onDeterminingFilename) {
-      downloads.onDeterminingFilename.addListener(
+    this.downloads.onChanged.addListener(this.onChanged.bind(this));
+    this.downloads.onErased.addListener(this.onErased.bind(this));
+    if (CHROME && this.downloads.onDeterminingFilename) {
+      this.downloads.onDeterminingFilename.addListener(
         this.onDeterminingFilename.bind(this));
     }
 
@@ -214,7 +215,7 @@ export class Manager extends EventEmitter {
   async startDownload(download: Download) {
     // Add to running first, so we don't confuse the scheduler and other parts
     this.running.add(download);
-    setShelfEnabled(false);
+    this.downloads.setShelfEnabled(false);
     await download.start();
     this.notifiedFinished = false;
   }
@@ -233,7 +234,7 @@ export class Manager extends EventEmitter {
         runtime.reload();
       }, RELOAD_TIMEOUT);
     }
-    setShelfEnabled(true);
+    this.downloads.setShelfEnabled(true);
   }
 
   maybeNotifyFinished() {
@@ -343,6 +344,19 @@ export class Manager extends EventEmitter {
 
   setMissing(sid: number) {
     this.forEach([sid], download => download.setMissing());
+  }
+
+  openDownload(sid: number) {
+    this.forEach([sid], download => this.downloads.open(download.manId));
+  }
+
+  showDownload(sid: number) {
+    console.log('SHOW', sid);
+    this.forEach([sid], download => this.downloads.show(download.manId));
+  }
+
+  removeDownloadFiles(sids: number[]) {
+    this.forEach(sids, download => this.downloads.removeFile(download.manId));
   }
 
   changedState(download: Download, oldState: number, newState: number) {

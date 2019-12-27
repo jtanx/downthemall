@@ -102,6 +102,10 @@ addEventListener("DOMContentLoaded", function dom() {
     await fullyloaded;
     Table.updateItems(items);
   }));
+  PORT.on("stats", serializer.wrap(this, async (items: any[]) => {
+    await fullyloaded;
+    Table.updateStats(items);
+  }));
   PORT.on("removed", serializer.wrap(this, async (sids: number[]) => {
     await fullyloaded;
     Table.removedItems(sids);

@@ -28,6 +28,7 @@
     "downloads.shelf",
     "history",
     "menus",
+    "nativeMessaging",
     "notifications",
     "sessions",
     "storage",

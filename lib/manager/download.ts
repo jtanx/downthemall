@@ -2,7 +2,7 @@
 // License: MIT
 
 // eslint-disable-next-line no-unused-vars
-import { CHROME, downloads, DownloadOptions } from "../browser";
+import { CHROME, DownloadOptions } from "../browser";
 import { Prefs, PrefWatcher } from "../prefs";
 import { PromiseSerializer } from "../pserializer";
 import { filterInSitu, parsePath } from "../util";
@@ -84,7 +84,7 @@ export class Download extends BaseDownload {
     if (this.manId) {
       const {manId: id} = this;
       try {
-        const state = (await downloads.search({id})).pop() || {};
+        const state = (await this.manager.downloads.search({id})).pop() || {};
         if (state.state === "in_progress" && !state.error && !state.paused) {
           this.changeState(RUNNING);
           this.updateStateFromBrowser();
@@ -100,7 +100,7 @@ export class Download extends BaseDownload {
         }
         // Cannot await here
         // Firefox bug: will not return until download is finished
-        downloads.resume(id).catch(console.error);
+        this.manager.downloads.resume(id).catch(console.error);
         this.changeState(RUNNING);
         return;
       }
@@ -163,7 +163,7 @@ export class Download extends BaseDownload {
 
       try {
         this.manager.addManId(
-          this.manId = await downloads.download(options), this);
+          this.manId = await this.manager.downloads.download(options), this);
       }
       catch (ex) {
         if (!this.referrer) {
@@ -172,7 +172,7 @@ export class Download extends BaseDownload {
         // Re-attempt without referrer
         filterInSitu(options.headers, h => h.name !== "Referer");
         this.manager.addManId(
-          this.manId = await downloads.download(options), this);
+          this.manId = await this.manager.downloads.download(options), this);
       }
       this.markDirty();
     }
@@ -250,7 +250,7 @@ export class Download extends BaseDownload {
 
     if (this.state === RUNNING && this.manId) {
       try {
-        await downloads.pause(this.manId);
+        await this.manager.downloads.pause(this.manId);
       }
       catch (ex) {
         console.error("pause", ex.toString(), ex);
@@ -274,14 +274,14 @@ export class Download extends BaseDownload {
   async removeFromBrowser() {
     const {manId: id} = this;
     try {
-      await downloads.cancel(id);
+      await this.manager.downloads.cancel(id);
     }
     catch (ex) {
       // ingored
     }
     await new Promise(r => setTimeout(r, 1000));
     try {
-      await downloads.erase({id});
+      await this.manager.downloads.erase({id});
     }
     catch (ex) {
       console.error(id, ex.toString(), ex);
@@ -327,7 +327,7 @@ export class Download extends BaseDownload {
     }
     const {manId: id} = this;
     try {
-      const dls = await downloads.search({id});
+      const dls = await this.manager.downloads.search({id});
       if (!dls.length) {
         this.setMissing();
         return this;
@@ -353,7 +353,7 @@ export class Download extends BaseDownload {
 
   async updateStateFromBrowser() {
     try {
-      const state = (await downloads.search({id: this.manId})).pop();
+      const state = (await this.manager.downloads.search({id: this.manId})).pop();
       const {filename, error} = state;
       const path = parsePath(filename);
       this.browserName = path.name;

@@ -61,6 +61,9 @@ export class ManagerPort {
     port.on("pause", ({sids}: SIDS) => this.manager.pauseDownloads(sids));
     port.on("cancel", ({sids}: SIDS) => this.manager.cancelDownloads(sids));
     port.on("missing", ({sid}: SID) => this.manager.setMissing(sid));
+    port.on("open", ({sid}: SID) => this.manager.openDownload(sid));
+    port.on("show", ({sid}: SID) => this.manager.showDownload(sid));
+    port.on("removeFile", ({sids}: SIDS) => this.manager.removeDownloadFiles(sids));
 
     this.port.on("disconnect", () => {
       this.manager.off("dirty", this.onDirty);

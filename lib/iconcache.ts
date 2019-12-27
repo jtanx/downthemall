@@ -1,7 +1,7 @@
 "use strict";
 // License: MIT
 
-import { downloads, CHROME } from "./browser";
+import { CHROME } from "./browser";
 import { EventEmitter } from "../uikit/lib/events";
 import { PromiseSerializer } from "./pserializer";
 
@@ -27,15 +27,17 @@ const BLACKLISTED = Object.freeze(new Set([
   "app",
 ]));
 
-async function getIcon(size: number, manId: number) {
-  const raw = await downloads.getFileIcon(manId, {size});
-  const icon = new URL(raw);
-  if (icon.protocol === "data:") {
-    const res = await fetch(icon.toString());
-    const blob = await res.blob();
-    return {size, icon: blob};
-  }
-  return {size, icon};
+async function getIcon(size: number, manId: number): Promise<{size: number, icon: Blob}> {
+  // FIXME
+  throw new Error("unsupported");
+  // const raw = await downloads.getFileIcon(manId, {size});
+  // const icon = new URL(raw);
+  // if (icon.protocol === "data:") {
+  //   const res = await fetch(icon.toString());
+  //   const blob = await res.blob();
+  //   return {size, icon: blob};
+  // }
+  // return {size, icon};
 }
 
 const SYNONYMS = Object.freeze(new Map<string, string>([

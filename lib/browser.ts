@@ -3,7 +3,7 @@
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const polyfill = require("webextension-polyfill");
 
-interface ExtensionListener {
+export interface ExtensionListener {
   addListener: (listener: Function) => void;
   removeListener: (listener: Function) => void;
 }
@@ -70,7 +70,7 @@ export interface DownloadsQuery {
   id?: number;
 }
 
-interface Downloads {
+export interface Downloads {
   download(download: DownloadOptions): Promise<number>;
   open(manId: number): Promise<void>;
   show(manId: number): Promise<void>;
@@ -102,7 +102,6 @@ export interface OnInstalled {
 
 export const {browserAction} = polyfill;
 export const {contextMenus} = polyfill;
-export const {downloads}: {downloads: Downloads} = polyfill;
 export const {extension} = polyfill;
 export const {history} = polyfill;
 export const {menus} = polyfill;
